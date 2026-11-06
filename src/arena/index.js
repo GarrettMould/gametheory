@@ -1,0 +1,7 @@
+export { runEvolution, validateCreatures } from './evolution.js'
+export { FIXTURES, makeRandomClass } from './fixtures.js'
+export { playRound, playTerritory, playFood, playPack, playAmbush } from './games.js'
+export { playMatch } from './match.js'
+export { createRng, d6, deriveSeed, rngFromDice } from './rng.js'
+export { ADAPTATIONS, ARCHETYPES, DEFAULT_RULES, mergeRules } from './rules.js'
+export { chooseMove } from './strategies.js'

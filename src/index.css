@@ -1,0 +1,49 @@
+:root {
+  --ink: #1c1915;
+  --muted: #5e564c;
+  --paper: #fbf7f1;
+  --page: #e7e0d4;
+  --line: #d9d0c3;
+  --accent: #245246;
+  --accent-strong: #1a3d34;
+  --ok: #1f6b45;
+  --ok-bg: #e7f3ec;
+  --warn: #8a4b12;
+  --warn-bg: #f8efe4;
+  --error: #8f2d2d;
+  --error-bg: #f8ecec;
+  --focus: #1d6b8a;
+  font-family: "Avenir Next", "Segoe UI", system-ui, sans-serif;
+  color: var(--ink);
+  background: var(--page);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+#root {
+  min-height: 100svh;
+}
+
+h1,
+h2,
+legend {
+  font-family: "Iowan Old Style", Palatino, "Palatino Linotype", Georgia, serif;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
