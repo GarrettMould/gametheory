@@ -1,0 +1,113 @@
+.herd {
+  margin-top: 1.1rem;
+}
+
+.herd-key {
+  margin: 0 0 0.75rem;
+  color: var(--muted);
+  font-size: 0.92rem;
+  line-height: 1.45;
+}
+
+.herd-pasture {
+  position: relative;
+  overflow: hidden;
+  background: #efe8dc;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+}
+
+.herd-pasture svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.herd-ground {
+  fill: #efe8dc;
+}
+
+.herd-fence {
+  fill: none;
+  stroke: #245246;
+  stroke-width: 2.2;
+  stroke-dasharray: 7 6;
+  opacity: 0.55;
+}
+
+.herd-dot {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: herd-pop 0.45s ease-out;
+}
+
+.herd-label {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  max-width: 42%;
+  padding: 0.18rem 0.5rem 0.18rem 0.32rem;
+  color: var(--ink);
+  background: rgba(251, 247, 241, 0.94);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1.2;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.herd-name {
+  overflow: hidden;
+  min-width: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.herd-label strong {
+  color: var(--accent);
+  font-weight: 800;
+}
+
+.herd-label.is-gone {
+  color: var(--muted);
+  opacity: 0.72;
+}
+
+.herd-label.is-gone strong {
+  color: var(--muted);
+}
+
+.herd-swatch {
+  flex: 0 0 auto;
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+}
+
+@keyframes herd-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.2);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .herd-dot {
+    animation: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .herd-label {
+    max-width: 46%;
+    font-size: 0.62rem;
+    padding: 0.12rem 0.38rem 0.12rem 0.26rem;
+  }
+}
