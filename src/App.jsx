@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import './App.css'
 import { ADMIN_PIN } from './adminPin.js'
 import ArenaLab from './ArenaLab.jsx'
+import BattleArena from './BattleArena.jsx'
 import DraftBoard from './DraftBoard.jsx'
 import { deleteCreature } from './deleteCreature.js'
 import { loadCreatures } from './loadCreatures.js'
@@ -398,6 +399,9 @@ function readRoute(hash = window.location.hash) {
   if (page === 'draft') {
     return { view: 'draft', block: '' }
   }
+  if (page === 'battle' || page === 'arena') {
+    return { view: 'battle', block: '' }
+  }
   return { view: 'design', block: '' }
 }
 
@@ -416,6 +420,14 @@ function SiteNav({ view, onNavigate }) {
         Evolutionary Arena
       </a>
       <div className="site-links">
+        <a
+          className="site-link-quiet"
+          href="#battle"
+          aria-current={view === 'battle' ? 'page' : undefined}
+          onClick={(event) => go(event, '#battle')}
+        >
+          Arena
+        </a>
         <a
           className="site-link-quiet"
           href="#arena-lab"
@@ -629,7 +641,9 @@ export default function App() {
   }
 
   let content
-  if (route.view === 'lab') {
+  if (route.view === 'battle') {
+    content = <BattleArena />
+  } else if (route.view === 'lab') {
     content = <ArenaLab />
   } else if (route.view === 'draft') {
     content = (
@@ -1071,7 +1085,9 @@ export default function App() {
 
   return (
     <>
-      <SiteNav view={route.view} onNavigate={setRoute} />
+      {route.view !== 'battle' && (
+        <SiteNav view={route.view} onNavigate={setRoute} />
+      )}
       {content}
     </>
   )

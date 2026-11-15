@@ -1,0 +1,170 @@
+/* End-of-round standings. Same cream panel as the other arena notices. */
+.standings {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 12;
+  display: grid;
+  gap: 0.6rem;
+  width: min(22rem, calc(100% - 2rem));
+  max-height: calc(100svh - 2rem);
+  overflow-y: auto;
+  padding: 0.9rem 1rem 0.8rem;
+  color: #1c1915;
+  font-size: 0.78rem;
+  background: rgba(251, 247, 241, 0.96);
+  border: 1px solid rgba(36, 82, 70, 0.18);
+  border-radius: 14px;
+  box-shadow: 0 12px 30px rgba(20, 28, 18, 0.35);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  animation: standings-in 0.3s ease-out both;
+}
+
+.standings p,
+.standings h2,
+.standings ol {
+  margin: 0;
+}
+
+.standings-label {
+  color: #245246;
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.standings h2 {
+  font-size: 1.15rem;
+  line-height: 1.2;
+}
+
+.standings-lede {
+  color: #5e564c;
+}
+
+/* With many species the card widens and the list runs down two or three columns, so everyone
+   fits on screen at once. The browser decides how many columns fit the width. */
+.standings.is-wide {
+  width: min(48rem, calc(100% - 2rem));
+}
+
+.standings-list {
+  padding: 0.5rem 0 0;
+  list-style: none;
+  border-top: 1px solid #e4dccf;
+}
+
+.standings.is-wide .standings-list {
+  columns: 3 13rem;
+  column-gap: 1.1rem;
+}
+
+.standings-row {
+  display: grid;
+  grid-template-columns: 1.4rem 1fr auto;
+  gap: 0.4rem;
+  align-items: baseline;
+  margin-bottom: 0.15rem;
+  padding: 0.2rem 0.4rem;
+  border-radius: 6px;
+  break-inside: avoid;
+  transition: opacity 0.4s ease, background 0.4s ease, color 0.4s ease;
+}
+
+.standings-rank {
+  color: #5e564c;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.standings-name {
+  overflow: hidden;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.standings-count {
+  font-family: "Iowan Old Style", Palatino, Georgia, serif;
+  font-size: 0.9rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.standings-row.is-you {
+  color: #fbf7f1;
+  background: #245246;
+}
+
+.standings-row.is-you .standings-rank {
+  color: rgba(251, 247, 241, 0.75);
+}
+
+.standings-row.is-bottom:not(.is-you) {
+  background: #f3ece1;
+}
+
+.standings-row.is-bottom .standings-rank {
+  color: #7d2f1b;
+  font-weight: 800;
+}
+
+.standings-row.is-you.is-bottom .standings-rank {
+  color: #ffc9b8;
+}
+
+.standings-row.is-out {
+  color: #7d2f1b;
+  background: #f6e2da;
+  opacity: 0.6;
+}
+
+.standings-row.is-out .standings-name {
+  text-decoration: line-through;
+}
+
+.standings-row.is-out .standings-rank {
+  color: inherit;
+}
+
+.standings-row.is-out .standings-count {
+  font-family: inherit;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.standings-keys {
+  color: #5e564c;
+  font-size: 0.68rem;
+  font-weight: 600;
+  text-align: right;
+}
+
+.standings kbd {
+  display: inline-block;
+  min-width: 1.2rem;
+  margin-right: 0.15rem;
+  padding: 0.05rem 0.3rem;
+  color: #fbf7f1;
+  font: inherit;
+  font-weight: 800;
+  text-align: center;
+  background: #245246;
+  border-radius: 4px;
+}
+
+@keyframes standings-in {
+  from { opacity: 0; transform: translate(-50%, calc(-50% + 0.5rem)); }
+  to { opacity: 1; transform: translate(-50%, -50%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .standings,
+  .standings * {
+    animation: none !important;
+    transition: none !important;
+  }
+}

@@ -108,10 +108,10 @@ test('Detective vs Copycat: Detective plays Copycat from round 5', () => {
   }
 })
 
-test('Food: two sharers with Efficiency 4 get +3, Efficiency 6 get +4', () => {
+test('Food: two sharers with Efficiency 3 get +3, Efficiency 4 get +4', () => {
   const mid = playFood(
-    critter('a', 'All Cooperate'),
-    critter('b', 'All Cooperate'),
+    critter('a', 'All Cooperate', { efficiency: 3 }),
+    critter('b', 'All Cooperate', { efficiency: 3 }),
     'cooperate',
     'cooperate',
     rngFromDice([]),
@@ -121,8 +121,8 @@ test('Food: two sharers with Efficiency 4 get +3, Efficiency 6 get +4', () => {
   assert.deepEqual(mid.points, [3, 3])
 
   const high = playFood(
-    critter('a', 'All Cooperate', { efficiency: 6, size: 2, agility: 2 }),
-    critter('b', 'All Cooperate', { efficiency: 6, size: 2, agility: 2 }),
+    critter('a', 'All Cooperate', { efficiency: 4 }),
+    critter('b', 'All Cooperate', { efficiency: 4 }),
     'cooperate',
     'cooperate',
     rngFromDice([]),
@@ -333,14 +333,14 @@ test('explainer walks through every Block E species in plain language', () => {
   const explainer = explainRun(run)
   assert.equal(explainer.pages.length, FIXTURES.length + 1)
   assert.equal(explainer.pages[0].id, 'overview')
-  assert.match(explainer.pages[0].paragraphs.join(' '), /Painted Dog had the most/)
+  assert.match(explainer.pages[0].paragraphs.join(' '), /Iron Crow had the most/)
 
   const byId = Object.fromEntries(explainer.pages.slice(1).map((page) => [page.id, page]))
-  assert.equal(explainer.pages[1].id, 'painted-dog')
-  assert.match(byId['painted-dog'].paragraphs.join(' '), /group, not the duel/)
-  assert.match(byId['brood-cuckoo'].paragraphs.join(' '), /gone by season 10/)
+  assert.equal(explainer.pages[1].id, 'iron-crow')
+  assert.match(byId['painted-dog'].paragraphs.join(' '), /did well at first/)
+  assert.match(byId['brood-cuckoo'].paragraphs.join(' '), /gone by season 9/)
   assert.match(byId['brood-cuckoo'].paragraphs.join(' '), /Plain Dodo/)
-  assert.match(byId['iron-crow'].paragraphs.join(' '), /did well at first/)
+  assert.match(byId['iron-crow'].paragraphs.join(' '), /finished with the biggest group/)
   assert.match(byId['nightveil-bat'].paragraphs.join(' '), /faded to/)
   assert.match(byId['brush-fox'].paragraphs.join(' '), /never forgave/)
   assert.match(byId['plain-dodo'].paragraphs.join(' '), /never hit back/)
@@ -359,7 +359,7 @@ test('explainer opens with prediction vs actual when a ranking is passed', () =>
   assert.equal(explainer.pages[0].compare.rows.length, FIXTURES.length)
   assert.equal(
     explainer.pages[0].compare.rows[0].actual.name,
-    'Painted Dog',
+    'Iron Crow',
   )
 })
 

@@ -35,7 +35,8 @@ export const DEFAULT_RULES = {
 
   food: {
     shareGain: 4,
-    shareCostByEfficiency: { 1: 2, 2: 2, 3: 1, 4: 1, 5: 0, 6: 0 },
+    // Two ranges, matching the bout sheet: Efficiency 3 or lower pays 1 to share, 4 or higher pays nothing.
+    shareCostByEfficiency: { 1: 1, 2: 1, 3: 1, 4: 0, 5: 0, 6: 0 },
     keeperWins: 5,
     suckerLoss: -3,
     suckerLossWithReserves: -1,
