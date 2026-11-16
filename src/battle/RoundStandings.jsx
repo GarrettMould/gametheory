@@ -117,7 +117,7 @@ export default function RoundStandings({ summary, onContinue }) {
         {!done
           ? 'to skip'
           : playerOut || won
-            ? 'to play again'
+            ? 'to see how your game went'
             : `to start round ${round + 1}`}
       </p>
     </section>

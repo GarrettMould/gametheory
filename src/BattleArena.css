@@ -1,3 +1,11 @@
+.battle-lock-back {
+  display: inline-block;
+  margin: 1rem 1rem 0;
+  color: #245246;
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
 .battle-page {
   position: relative;
   width: 100%;
@@ -149,6 +157,26 @@
   color: #9a9186;
   cursor: default;
   background: transparent;
+}
+
+.battle-mute {
+  padding: 0.3rem 0.7rem;
+  color: rgba(251, 247, 241, 0.85);
+  font-size: 0.68rem;
+  font-weight: 700;
+  background: rgba(20, 28, 18, 0.6);
+  border: 0;
+  border-radius: 999px;
+  box-shadow: none;
+  cursor: pointer;
+}
+
+.battle-mute:hover {
+  color: #fbf7f1;
+}
+
+.battle-mute[aria-pressed='true'] {
+  color: rgba(251, 247, 241, 0.55);
 }
 
 .battle-terrain {
@@ -373,6 +401,26 @@
 
 .fighter-hunger.is-empty .fighter-hunger-bar {
   background: #f1cfc4;
+}
+
+.fighter-power {
+  margin: 0;
+  padding: 0.35rem 0.5rem;
+  color: #3d3830;
+  font-size: 0.62rem;
+  line-height: 1.3;
+  background: #fff;
+  border: 1px solid #d9d0c3;
+  border-radius: 8px;
+}
+
+.fighter-power strong {
+  color: #245246;
+}
+
+.fighter-power em {
+  font-style: normal;
+  font-weight: 750;
 }
 
 .fighter-season {

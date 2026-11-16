@@ -16,11 +16,13 @@ const AMBIENT = {
   arctic: { filter: 'bandpass', pitch: 420, q: 2.6, level: 0.11, swell: 0.07, calls: ['gust'], every: [6, 14] },
   wetland: { filter: 'lowpass', pitch: 820, q: 0.7, level: 0.035, swell: 0.1, calls: ['frog', 'frog', 'cricket'], every: [2, 6] },
 }
+// Footsteps are soft thuds: low, quiet, and eased in so they do not click. `ease` is how long the
+// sound takes to reach full loudness.
 const STEPS = {
-  ground: { filter: 'lowpass', pitch: 850, level: 0.13, length: 0.07 },
-  water: { filter: 'bandpass', pitch: 1700, level: 0.16, length: 0.14 },
-  snow: { filter: 'highpass', pitch: 2400, level: 0.09, length: 0.1 },
-  ice: { filter: 'bandpass', pitch: 3200, level: 0.07, length: 0.04 },
+  ground: { filter: 'lowpass', pitch: 320, level: 0.05, length: 0.12, ease: 0.03 },
+  water: { filter: 'bandpass', pitch: 900, q: 0.7, level: 0.05, length: 0.2, ease: 0.04 },
+  snow: { filter: 'bandpass', pitch: 1100, q: 0.6, level: 0.035, length: 0.16, ease: 0.04 },
+  ice: { filter: 'bandpass', pitch: 1500, q: 0.8, level: 0.025, length: 0.07, ease: 0.02 },
 }
 const NOTE = { C4: 261.6, Eb4: 311.1, G4: 392, C5: 523.3, E5: 659.3, G5: 784, C6: 1046.5 }
 const between = (a, b) => a + (b - a) * Math.random()
@@ -69,7 +71,7 @@ export function createSoundscape() {
   }
 
   /** A short burst of filtered hiss: a footstep, a splash, a gust. */
-  function hiss({ filter, pitch, level, length, at = 0, q = 1 }) {
+  function hiss({ filter, pitch, level, length, at = 0, q = 1, ease = null }) {
     const start = ctx.currentTime + at
     const source = ctx.createBufferSource()
     source.buffer = noise
@@ -79,7 +81,7 @@ export function createSoundscape() {
     shaped.Q.value = q
     const gain = ctx.createGain()
     gain.gain.setValueAtTime(0.0001, start)
-    gain.gain.exponentialRampToValueAtTime(level, start + Math.min(0.015, length / 3))
+    gain.gain.exponentialRampToValueAtTime(level, start + (ease ?? Math.min(0.015, length / 3)))
     gain.gain.exponentialRampToValueAtTime(0.0001, start + length)
     source.connect(shaped).connect(gain).connect(master)
     source.start(start, Math.random())
@@ -192,7 +194,10 @@ export function createSoundscape() {
       }
     },
     step(surface) {
-      if (live()) hiss(STEPS[surface] || STEPS.ground)
+      if (!live()) return
+      // each step a little different in pitch and loudness, so they do not sound like a machine
+      const base = STEPS[surface] || STEPS.ground
+      hiss({ ...base, pitch: base.pitch * between(0.85, 1.15), level: base.level * between(0.75, 1) })
     },
     setChase(level) {
       const was = chase

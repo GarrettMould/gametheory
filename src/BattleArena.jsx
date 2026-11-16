@@ -1,11 +1,17 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
+import AdminLock from './AdminLock.jsx'
+import { isLabUnlocked } from './adminPin.js'
 import BattleScene from './battle/BattleScene.jsx'
 import ChallengeOverlay from './battle/ChallengeOverlay.jsx'
+import Debrief from './battle/Debrief.jsx'
+import { buildDebrief } from './battle/debrief.js'
+import { createSoundscape } from './battle/sound.js'
 import RoundStandings, { StandingsPeek } from './battle/RoundStandings.jsx'
 import {
   ALL_GAMES,
   BERRY_MEAL,
   HUNGER_FULL,
+  POWER_HELP,
   QUESTION_CHANCE,
   QUESTION_REWARD,
   hungerDrain,
@@ -20,6 +26,7 @@ import {
   eliminate,
   playChallenge,
   populationOf,
+  powerOf,
   standings,
   starve,
   stepSeason,
@@ -33,6 +40,15 @@ import './BattleArena.css'
 
 const ROUND_SECONDS = 180 // how long a round lasts
 const ELIMINATED_PER_ROUND = 5 // how many of the smallest populations go at the end of each round
+
+const TERRAIN_NAMES = [
+  ['savanna', 'Savanna'],
+  ['jungle', 'Jungle'],
+  ['arctic', 'Arctic'],
+  ['wetland', 'Wetland'],
+]
+/** A fresh record of one game, for the debrief at the end. */
+const emptyLog = () => ({ challenges: [], berries: 0, starved: 0, blocked: 0 })
 
 const clock = (seconds) =>
   `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
@@ -213,7 +229,9 @@ function PlayerCard({
   rank,
   alive,
   hunger,
+  armor,
 }) {
+  const power = POWER_HELP[powerOf(creature)]
   const fed = hunger / HUNGER_FULL
   const hungerState = hunger <= 0 ? 'is-empty' : fed < 0.3 ? 'is-low' : ''
   return (
@@ -304,6 +322,14 @@ function PlayerCard({
           </small>
         </div>
       ) : null}
+      {creature && power ? (
+        <p className="fighter-power">
+          <strong>{power.name}</strong> {power.does}
+          {powerOf(creature) === 'armor' && (
+            <em>{armor > 0 ? ' Ready.' : ' Used this round.'}</em>
+          )}
+        </p>
+      ) : null}
       {creature ? <p className="fighter-season">Season {season}</p> : null}
       <CreaturePicker
         label="Creature"
@@ -316,7 +342,32 @@ function PlayerCard({
   )
 }
 
+/** The arena is behind the same admin PIN as the Arena Lab; entering it once covers both for the session. */
 export default function BattleArena() {
+  const [unlocked, setUnlocked] = useState(isLabUnlocked)
+
+  if (!unlocked) {
+    return (
+      <>
+        <a className="battle-lock-back" href="#design">
+          Back to the site
+        </a>
+        <AdminLock
+          className="page lab-page"
+          eyebrow="Teacher only"
+          title="Arena"
+          prompt="Enter the admin PIN to open the arena."
+          action="Open arena"
+          onUnlock={() => setUnlocked(true)}
+        />
+      </>
+    )
+  }
+
+  return <ArenaGame />
+}
+
+function ArenaGame() {
   const [creatures, setCreatures] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -354,6 +405,9 @@ export default function BattleArena() {
   const [nearby, setNearby] = useState(null)
   const [battle, setBattle] = useState(null) // the challenge being played back, if any
   const [choice, setChoice] = useState(null) // the pick-a-game card: { opponent, games: [a, b] }
+  const [debrief, setDebrief] = useState(null) // the end-of-game debrief, once the game is over
+  const [muted, setMuted] = useState(false)
+  const log = useRef(emptyLog()) // what has happened this game, for the debrief
   const [placeType, setPlaceType] = useState(null) // the place the player is standing in, if any
   const [hunter, setHunter] = useState(null) // the creature chasing the player, if any
   const [notice, setNotice] = useState(null) // a short message, such as what was just eaten
@@ -381,8 +435,31 @@ export default function BattleArena() {
   const [roundEnd, setRoundEnd] = useState(null) // the standings being shown, if any
   const [run, setRun] = useState(1) // goes up each time the game is restarted
   const inBattle = Boolean(battle)
-  const paused = inBattle || Boolean(roundEnd) || Boolean(choice)
+  const paused = inBattle || Boolean(roundEnd) || Boolean(choice) || Boolean(debrief)
   const ready = !loading && options.length > 1 // no clock until there is someone to play against
+
+  // Sound. Browsers stay silent until the user does something, so the first key press or click
+  // wakes it.
+  const sound = useMemo(() => createSoundscape(), [])
+  useEffect(() => {
+    const wake = () => sound.wake()
+    window.addEventListener('keydown', wake)
+    window.addEventListener('pointerdown', wake)
+    return () => {
+      window.removeEventListener('keydown', wake)
+      window.removeEventListener('pointerdown', wake)
+      sound.dispose()
+    }
+  }, [sound])
+  useEffect(() => sound.setTerrain(terrainKind), [sound, terrainKind])
+  useEffect(() => sound.setMuted(muted), [sound, muted])
+
+  // Armor turns away the first hunter to catch the player each round.
+  const power = powerOf(player)
+  const [armor, setArmor] = useState(0)
+  useEffect(() => {
+    setArmor(power === 'armor' ? 1 : 0)
+  }, [power, round, run])
 
   // Hunger: the bar drains a point a second and the food the player earns refills it.
   const [hunger, setHunger] = useState(HUNGER_FULL)
@@ -401,10 +478,11 @@ export default function BattleArena() {
     const timer = setInterval(() => {
       elapsed.current += 1
       setSecondsLeft((current) => Math.max(0, current - 1))
-      feed(-hungerDrain(player))
+      feed(-hungerDrain(player, terrainKind))
       if (elapsed.current % SEASON_SECONDS === 0) {
         // Every species has its typical encounter; a herd with nothing to eat also shrinks.
         const starving = hungerRef.current <= 0 && player
+        if (starving) log.current.starved += 1
         setPopulations((current) => {
           const next = stepSeason(options, current, matchups)
           return starving ? starve(player, options, next) : next
@@ -413,7 +491,7 @@ export default function BattleArena() {
       }
     }, 1000)
     return () => clearInterval(timer)
-  }, [paused, ready, secondsLeft, feed, player, options, matchups])
+  }, [paused, ready, secondsLeft, feed, player, options, matchups, terrainKind])
 
   // Time is up (and any challenge has finished): rank everyone and remove the bottom of the table.
   useEffect(() => {
@@ -432,25 +510,47 @@ export default function BattleArena() {
       won: !playerOut && rows.length - count === 1,
     })
     setPopulations(eliminate(options, populations, outIds))
-  }, [secondsLeft, paused, ready, options, populations, playerId, round])
+    sound.play(playerOut ? 'over' : 'round')
+  }, [secondsLeft, paused, ready, options, populations, playerId, round, sound])
 
+  // After the standings: on to the next round, or, if the game is over, the debrief.
   const closeStandings = useCallback(() => {
     if (!roundEnd) return
     if (roundEnd.playerOut || roundEnd.won) {
-      // Play again: a fresh world.
-      setPopulations({})
-      setFood({})
-      feed(HUNGER_FULL)
-      elapsed.current = 0
-      setSeason(1)
-      setRound(1)
-      setRun((current) => current + 1)
+      const me = options.find((item) => item.id === roundEnd.playerId)
+      setDebrief(
+        buildDebrief({
+          name: me?.speciesName ?? 'Your species',
+          strategy: me ? strategyOf(me) : 'Copycat',
+          log: log.current,
+          ending: {
+            won: roundEnd.won,
+            round: roundEnd.round,
+            rank: roundEnd.rows.findIndex((row) => row.id === roundEnd.playerId) + 1,
+            alive: roundEnd.rows.length,
+          },
+        }),
+      )
     } else {
       setRound((current) => current + 1)
+      setSecondsLeft(ROUND_SECONDS)
     }
-    setSecondsLeft(ROUND_SECONDS)
     setRoundEnd(null)
-  }, [roundEnd, feed])
+  }, [roundEnd, options])
+
+  // Play again: a fresh world.
+  const playAgain = useCallback(() => {
+    setDebrief(null)
+    setPopulations({})
+    setFood({})
+    feed(HUNGER_FULL)
+    elapsed.current = 0
+    log.current = emptyLog()
+    setSeason(1)
+    setRound(1)
+    setRun((current) => current + 1)
+    setSecondsLeft(ROUND_SECONDS)
+  }, [feed])
 
   // Where everyone stands right now, and who would go if the round ended this second.
   const table = useMemo(() => standings(options, populations), [options, populations])
@@ -520,6 +620,7 @@ export default function BattleArena() {
     (opponent, game, reason, atPlace = null) => {
       if (!player) return
       setChoice(null)
+      sound.play('challenge')
       const outcome = playChallenge(player, opponent, options, populations, matchups, { game })
       // Now and then a challenge ends with a quick question, never two challenges running.
       const ask = !askedLast.current && Math.random() < QUESTION_CHANCE
@@ -535,7 +636,7 @@ export default function BattleArena() {
         revealed: false,
       })
     },
-    [player, options, populations, matchups],
+    [player, options, populations, matchups, sound],
   )
 
   // Which game? At a place it is that place's game. If a chaser caught the player, the chaser's
@@ -547,9 +648,12 @@ export default function BattleArena() {
         startBattle(opponent, PLACES[atPlace].game, 'place', atPlace)
       }
       else if (forced) startBattle(opponent, drawGame(), 'caught')
-      else setChoice({ opponent, games: drawGameChoices() })
+      else {
+        sound.play('pick')
+        setChoice({ opponent, games: drawGameChoices() })
+      }
     },
-    [player, battle, choice, startBattle],
+    [player, battle, choice, startBattle, sound],
   )
 
   // Picking the game: 1 or 2.
@@ -568,9 +672,29 @@ export default function BattleArena() {
   // How close the chaser is changes every frame, so the scene writes it straight onto the page as
   // a CSS variable (0 far away, 1 about to be caught) instead of going through React state. The
   // danger meter and the fight-or-flight effect both read it.
-  const setDanger = useCallback((level) => {
-    pageRef.current?.style.setProperty('--danger', level.toFixed(3))
-  }, [])
+  const chased = useRef(false)
+  const setDanger = useCallback(
+    (level) => {
+      pageRef.current?.style.setProperty('--danger', level.toFixed(3))
+      if (chased.current) sound.setChase(level) // the heartbeat quickens as the hunter closes in
+    },
+    [sound],
+  )
+  useEffect(() => {
+    chased.current = Boolean(hunter) && !paused
+    sound.setChase(chased.current ? 0 : null)
+  }, [hunter, paused, sound])
+
+  // Armor turned a hunter away.
+  const armorUsed = useCallback(
+    (creature) => {
+      setArmor(0)
+      log.current.blocked += 1
+      sound.play('armor')
+      setNotice({ text: `Your armor turned ${creature.speciesName} away.`, at: Date.now() })
+    },
+    [sound],
+  )
 
   const eat = useCallback(() => {
     if (!player) return
@@ -581,8 +705,10 @@ export default function BattleArena() {
       [player.id]: (current[player.id] ?? STARTING_FOOD) + gained,
     }))
     feed(BERRY_MEAL)
+    log.current.berries += 1
+    sound.play('eat')
     setNotice({ text: `Berries: +${gained} food`, at: Date.now() })
-  }, [player, options, feed])
+  }, [player, options, feed, sound])
 
   useEffect(() => {
     if (!notice) return undefined
@@ -594,13 +720,25 @@ export default function BattleArena() {
     if (!battle || battle.revealed) return
     setBattle({ ...battle, revealed: true })
     feed(battle.outcome.food[0]) // what you won feeds the herd; being robbed leaves it hungrier
+    const [mine, theirs] = battle.outcome.food
+    sound.play(mine > theirs ? 'win' : mine < theirs ? 'lose' : 'draw')
+    log.current.challenges.push({
+      round,
+      opponent: battle.opponent.speciesName,
+      strategy: strategyOf(battle.opponent),
+      game: battle.outcome.game,
+      mine,
+      theirs,
+      par: battle.outcome.par,
+      caught: battle.forced,
+    })
     setPopulations((current) => ({ ...current, ...battle.outcome.populations }))
     setFood((current) => ({
       ...current,
       [battle.player.id]:
         (current[battle.player.id] ?? STARTING_FOOD) + battle.outcome.food[0],
     }))
-  }, [battle, feed])
+  }, [battle, feed, sound, round])
 
   const endBattle = useCallback(() => setBattle(null), [])
   // A right answer is a small snack for the herd.
@@ -625,6 +763,10 @@ export default function BattleArena() {
           onChallenge={challenge}
           onHunted={setHunter}
           onDanger={setDanger}
+          onArmor={armorUsed}
+          onStep={sound.step}
+          power={power}
+          armor={armor}
           onEat={eat}
           onPlace={setPlaceType}
           busy={paused}
@@ -662,11 +804,19 @@ export default function BattleArena() {
               <strong>{clock(secondsLeft)}</strong>
             </p>
           )}
+          <button
+            type="button"
+            className="battle-mute"
+            aria-pressed={muted}
+            onClick={(event) => {
+              setMuted((current) => !current)
+              event.currentTarget.blur() // so Space and E go back to the game
+            }}
+          >
+            {muted ? 'Sound off' : 'Sound on'}
+          </button>
           <div className="battle-terrain" role="group" aria-label="Terrain">
-            {[
-              ['savanna', 'Savanna'],
-              ['jungle', 'Jungle'],
-            ].map(([kind, label]) => (
+            {TERRAIN_NAMES.map(([kind, label]) => (
               <button
                 key={kind}
                 type="button"
@@ -696,6 +846,7 @@ export default function BattleArena() {
             rank={rank}
             alive={table.length}
             hunger={hunger}
+            armor={armor}
           />
         </div>
 
@@ -792,6 +943,8 @@ export default function BattleArena() {
       {roundEnd && (
         <RoundStandings summary={roundEnd} onContinue={closeStandings} />
       )}
+
+      {debrief && <Debrief debrief={debrief} onContinue={playAgain} />}
 
       {peeking && !paused && ready && (
         <StandingsPeek
