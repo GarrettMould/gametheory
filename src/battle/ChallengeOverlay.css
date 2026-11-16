@@ -249,6 +249,55 @@
   font-size: 0.72rem;
 }
 
+/* predicting the winner before the rounds */
+.challenge-predict {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.55rem 0.6rem;
+  background: #e7f0ed;
+  border-radius: 10px;
+  animation: challenge-fade 0.3s ease-out both;
+}
+
+.challenge-predict h3 {
+  font-size: 0.9rem;
+  line-height: 1.25;
+}
+
+.challenge-predict ol {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.3rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.challenge-predict li {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+  padding: 0.35rem 0.45rem;
+  overflow: hidden;
+  font-size: 0.8rem;
+  font-weight: 700;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  background: #fff;
+  border: 1px solid #d9d0c3;
+  border-radius: 8px;
+}
+
+.challenge-guessed {
+  color: var(--quiet);
+  font-size: 0.74rem;
+}
+
+.challenge-guessed strong {
+  color: var(--ink);
+}
+
 /* the quick question some challenges end with */
 .challenge-question {
   display: grid;

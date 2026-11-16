@@ -36,7 +36,7 @@ function averages(challenges, key, label) {
 }
 
 /**
- * `log` is { challenges: [{ round, opponent, strategy, game, mine, theirs, par, caught }],
+ * `log` is { challenges: [{ round, opponent, strategy, game, mine, theirs, par, caught, predicted, correct }],
  * berries, starved, blocked } and `ending` is { won, round, rank, alive } (rank among `alive`
  * living species when the game ended). `strategy` is the player's own.
  * Returns { title, placement, facts: [text], best, worst, byStrategy, byGame, takeaway, discuss }.
@@ -59,6 +59,11 @@ export function buildDebrief({ name, strategy, log, ending }) {
     `${log.berries} berry ${log.berries === 1 ? 'bush' : 'bushes'} eaten`,
     `${log.starved} ${log.starved === 1 ? 'season' : 'seasons'} spent starving`,
   ]
+  const predicted = challenges.filter((challenge) => challenge.predicted != null)
+  if (predicted.length) {
+    const right = predicted.filter((challenge) => challenge.correct).length
+    facts.unshift(`Predicted the winner in ${right} of ${predicted.length}`)
+  }
   if (log.blocked) facts.push(`${log.blocked} ${log.blocked === 1 ? 'catch' : 'catches'} turned away by armor`)
 
   // The single biggest thing that shaped the result, in priority order.

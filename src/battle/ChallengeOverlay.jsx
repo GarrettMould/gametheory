@@ -6,7 +6,7 @@ import './ChallengeOverlay.css'
 // How long each beat of a challenge stays on screen, in milliseconds.
 const INTRO_MS = 700 // the two names
 const SPIN_MS = 1100 // the game names flick past before one settles
-const LANDED_MS = 2600 // time to read what the game is and how each side plays
+const LANDED_MS = 700 // a moment after the prediction, before the rounds start
 const ROUND_MS = 600 // one round of the game
 const LAST_ROUND_MS = 700 // a breath after the final round
 const RESULT_MS = 30000 // the result waits for E, but not for ever
@@ -75,6 +75,11 @@ export default function ChallengeOverlay({ battle, onReveal, onDone, onAnswer })
   const [picked, setPicked] = useState(null) // the option chosen, or the sentence typed, once answered
   const [draft, setDraft] = useState('') // a written answer in progress
   const asking = Boolean(question) && picked === null
+  // Before the rounds, the player predicts who will come out ahead: 0 you, 1 them, 2 a tie.
+  const [guess, setGuess] = useState(null)
+  const predicting = guess === null
+  const winner = outcome.food[0] > outcome.food[1] ? 0 : outcome.food[0] < outcome.food[1] ? 1 : 2
+  const guessOptions = ['You', opponent.speciesName, 'Tie']
   const written = question?.kind === 'written'
   const draftWords = draft.trim().split(/\s+/).filter(Boolean).length
   const game = ALL_GAMES[outcome.game]
@@ -94,9 +99,11 @@ export default function ChallengeOverlay({ battle, onReveal, onDone, onAnswer })
     callbacks.current = { onReveal, onDone, onAnswer }
   })
 
-  // The timeline: each beat schedules the next. A question waits for its answer, however long.
+  // The timeline: each beat schedules the next. The prediction and any question wait for an
+  // answer, however long it takes.
   useEffect(() => {
     if (phase === 'result' && asking) return undefined
+    if (phase === 'landed' && predicting) return undefined
     let wait = RESULT_MS
     let next = () => callbacks.current.onDone()
     if (phase === 'intro') {
@@ -114,7 +121,7 @@ export default function ChallengeOverlay({ battle, onReveal, onDone, onAnswer })
     }
     const timer = setTimeout(next, wait)
     return () => clearTimeout(timer)
-  }, [phase, shown, total, asking])
+  }, [phase, shown, total, asking, predicting])
 
   // While the game is being picked, the names flick past.
   useEffect(() => {
@@ -124,8 +131,22 @@ export default function ChallengeOverlay({ battle, onReveal, onDone, onAnswer })
   }, [phase])
 
   useEffect(() => {
-    if (phase === 'result' && !asking) callbacks.current.onReveal()
-  }, [phase, asking])
+    if (phase !== 'result' || asking) return
+    callbacks.current.onReveal(guess === null ? null : { guess, correct: guess === winner })
+  }, [phase, asking, guess, winner])
+
+  // Predicting the winner: one number key, once the game and both strategies are on show.
+  useEffect(() => {
+    if (phase !== 'landed' || !predicting) return undefined
+    function onKey(event) {
+      const choice = { Digit1: 0, Numpad1: 0, Digit2: 1, Numpad2: 1, Digit3: 2, Numpad3: 2 }[event.code]
+      if (choice == null || event.repeat) return
+      event.preventDefault()
+      setGuess(choice)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [phase, predicting])
 
   // Answering a choice question: one number key.
   useEffect(() => {
@@ -149,14 +170,15 @@ export default function ChallengeOverlay({ battle, onReveal, onDone, onAnswer })
       event.preventDefault()
       if (phase === 'result') {
         if (!asking) callbacks.current.onDone() // a question has to be answered first
-      } else {
+      } else if (!predicting) {
+        // skipping ahead only once a prediction is in
         setShown(total)
         setPhase('result')
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [phase, total, asking])
+  }, [phase, total, asking, predicting])
 
   const played = outcome.rounds.slice(0, shown)
   const mine = played.reduce((sum, round) => sum + round.points[0], 0)
@@ -226,6 +248,25 @@ export default function ChallengeOverlay({ battle, onReveal, onDone, onAnswer })
               <dd>{notes.theirs}</dd>
             </div>
           </dl>
+          {phase === 'landed' && predicting && (
+            <div className="challenge-predict">
+              <p className="challenge-why-label">Your prediction</p>
+              <h3>Based on the game and both strategies, who comes out ahead?</h3>
+              <ol>
+                {guessOptions.map((option, index) => (
+                  <li key={option}>
+                    <kbd>{index + 1}</kbd>
+                    {option}
+                  </li>
+                ))}
+              </ol>
+            </div>
+          )}
+          {!predicting && (
+            <p className="challenge-guessed">
+              You predicted: <strong>{guessOptions[guess]}</strong>
+            </p>
+          )}
         </div>
       )}
 
@@ -305,6 +346,12 @@ export default function ChallengeOverlay({ battle, onReveal, onDone, onAnswer })
 
       {phase === 'result' && !asking && (
         <div className="challenge-result">
+          {guess !== null && (
+            <p className={guess === winner ? 'challenge-marked is-right' : 'challenge-marked'}>
+              <strong>{guess === winner ? 'You called it.' : 'Not this time.'}</strong> You
+              predicted {guess === 2 ? 'a tie' : `${guessOptions[guess] === 'You' ? 'you' : guessOptions[guess]} would come out ahead`}.
+            </p>
+          )}
           {question && !written && (
             <p className={picked === question.answer ? 'challenge-marked is-right' : 'challenge-marked'}>
               <strong>{picked === question.answer ? 'Right.' : 'Not quite.'}</strong>{' '}
@@ -344,7 +391,13 @@ export default function ChallengeOverlay({ battle, onReveal, onDone, onAnswer })
       )}
 
       <p className="challenge-keys">
-        {phase === 'result' && asking ? (
+        {phase !== 'result' && predicting ? (
+          gameKnown ? (
+            <>Press 1, 2 or 3 to predict</>
+          ) : (
+            <>The game is being chosen…</>
+          )
+        ) : phase === 'result' && asking ? (
           written ? (
             <>
               {draftWords < WRITTEN_MIN_WORDS

@@ -230,6 +230,7 @@ function PlayerCard({
   alive,
   hunger,
   armor,
+  reads,
 }) {
   const power = POWER_HELP[powerOf(creature)]
   const fed = hunger / HUNGER_FULL
@@ -293,6 +294,13 @@ function PlayerCard({
               ) : (
                 '–'
               )}
+            </dd>
+          </div>
+          <div>
+            <dt>Predictions</dt>
+            <dd key={`${reads.right}/${reads.total}`}>
+              {reads.right}
+              <small> of {reads.total}</small>
             </dd>
           </div>
         </dl>
@@ -408,6 +416,7 @@ function ArenaGame() {
   const [debrief, setDebrief] = useState(null) // the end-of-game debrief, once the game is over
   const [muted, setMuted] = useState(false)
   const log = useRef(emptyLog()) // what has happened this game, for the debrief
+  const [reads, setReads] = useState({ right: 0, total: 0 }) // winners predicted correctly this game
   const [placeType, setPlaceType] = useState(null) // the place the player is standing in, if any
   const [hunter, setHunter] = useState(null) // the creature chasing the player, if any
   const [notice, setNotice] = useState(null) // a short message, such as what was just eaten
@@ -546,6 +555,7 @@ function ArenaGame() {
     feed(HUNGER_FULL)
     elapsed.current = 0
     log.current = emptyLog()
+    setReads({ right: 0, total: 0 })
     setSeason(1)
     setRound(1)
     setRun((current) => current + 1)
@@ -716,8 +726,14 @@ function ArenaGame() {
     return () => clearTimeout(timer)
   }, [notice])
 
-  const revealBattle = useCallback(() => {
+  const revealBattle = useCallback((prediction) => {
     if (!battle || battle.revealed) return
+    if (prediction) {
+      setReads((current) => ({
+        right: current.right + (prediction.correct ? 1 : 0),
+        total: current.total + 1,
+      }))
+    }
     setBattle({ ...battle, revealed: true })
     feed(battle.outcome.food[0]) // what you won feeds the herd; being robbed leaves it hungrier
     const [mine, theirs] = battle.outcome.food
@@ -731,6 +747,8 @@ function ArenaGame() {
       theirs,
       par: battle.outcome.par,
       caught: battle.forced,
+      predicted: prediction?.guess ?? null,
+      correct: prediction?.correct ?? null,
     })
     setPopulations((current) => ({ ...current, ...battle.outcome.populations }))
     setFood((current) => ({
@@ -847,6 +865,7 @@ function ArenaGame() {
             alive={table.length}
             hunger={hunger}
             armor={armor}
+            reads={reads}
           />
         </div>
 
