@@ -240,9 +240,84 @@
   text-align: center;
 }
 
+.challenge-verdict {
+  font-weight: 700;
+}
+
 .challenge-aside {
   color: var(--quiet);
   font-size: 0.72rem;
+}
+
+/* the quick question some challenges end with */
+.challenge-question {
+  display: grid;
+  gap: 0.4rem;
+  padding-top: 0.55rem;
+  border-top: 1px solid var(--rule);
+  animation: challenge-fade 0.3s ease-out both;
+}
+
+.challenge-question h3 {
+  font-size: 0.98rem;
+  line-height: 1.25;
+}
+
+.challenge-question ol {
+  display: grid;
+  gap: 0.3rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.challenge-question li {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.4rem 0.6rem;
+  font-size: 0.85rem;
+  font-weight: 700;
+  background: #fff;
+  border: 1px solid #d9d0c3;
+  border-radius: 10px;
+}
+
+.challenge-question textarea {
+  width: 100%;
+  padding: 0.45rem 0.6rem;
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.85rem;
+  line-height: 1.35;
+  background: #fff;
+  border: 1px solid #cfc5b6;
+  border-radius: 10px;
+  resize: none;
+  pointer-events: auto;
+}
+
+.challenge-question textarea:focus {
+  border-color: var(--green);
+  outline: 2px solid rgba(36, 82, 70, 0.25);
+}
+
+.challenge-marked em {
+  display: block;
+  margin-top: 0.15rem;
+  font-size: 0.72rem;
+}
+
+.challenge-marked {
+  padding: 0.4rem 0.6rem;
+  color: #7d2f1b;
+  background: #f6e2da;
+  border-radius: 8px;
+}
+
+.challenge-marked.is-right {
+  color: var(--green);
+  background: #e7f0ed;
 }
 
 /* the result and why */

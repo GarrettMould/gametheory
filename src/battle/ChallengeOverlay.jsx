@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ALL_GAMES, explainChallenge } from './challenge.js'
+import { ALL_GAMES, WRITTEN_MIN_WORDS, explainChallenge } from './challenge.js'
+import { PLACES } from './places.js'
 import './ChallengeOverlay.css'
 
 // How long each beat of a challenge stays on screen, in milliseconds.
@@ -28,6 +29,19 @@ function standing(gap, who) {
   return `${who} earned ${size} ${gap > 0 ? 'more' : 'less'} than that.`
 }
 
+/** One plain sentence on why the populations moved the way they did. */
+function verdictLine(mineGap, theirsGap) {
+  if (mineGap < 0 && theirsGap < 0) {
+    return 'Earning food is not enough on its own. Both of you fell behind what the rest of the world is earning, so both populations shrank.'
+  }
+  if (mineGap > 0 && theirsGap > 0) {
+    return 'Both of you out-earned the rest of the world, so both populations grew.'
+  }
+  if (mineGap > 0) return 'You out-earned the rest of the world and they fell behind it, so you grew and they shrank.'
+  if (theirsGap > 0) return 'They out-earned the rest of the world and you fell behind it, so they grew and you shrank.'
+  return 'This was about what the rest of the world is earning, so it changed little.'
+}
+
 /** What one side did in a round: its move in a normal game, its roll in a wildcard. */
 function RoundChip({ round, side, game }) {
   if (round.moves) {
@@ -50,26 +64,39 @@ function RoundChip({ round, side, game }) {
  * ten rounds one by one, then what happened and why. `onReveal` fires when the result appears (that
  * is when the numbers in the sidebar should change) and `onDone` when the card closes. E or Enter
  * skips ahead.
+ *
+ * Some challenges carry a question (`battle.question`). It is asked before the explanation, and the
+ * result stays hidden until it is answered so it cannot give the answer away. A choice question takes
+ * one number key; a written one takes a typed sentence and Enter. `onAnswer(correct)` reports how it
+ * went (a written answer always counts).
  */
-export default function ChallengeOverlay({ battle, onReveal, onDone }) {
-  const { outcome, player, opponent, forced } = battle
+export default function ChallengeOverlay({ battle, onReveal, onDone, onAnswer }) {
+  const { outcome, player, opponent, forced, question } = battle
+  const [picked, setPicked] = useState(null) // the option chosen, or the sentence typed, once answered
+  const [draft, setDraft] = useState('') // a written answer in progress
+  const asking = Boolean(question) && picked === null
+  const written = question?.kind === 'written'
+  const draftWords = draft.trim().split(/\s+/).filter(Boolean).length
   const game = ALL_GAMES[outcome.game]
   const notes = useMemo(
     () => explainChallenge(player, opponent, outcome),
     [player, opponent, outcome],
   )
   const total = outcome.rounds.length
-  const [phase, setPhase] = useState('intro') // intro -> spin -> landed -> rounds -> result
+  // intro -> spin -> landed -> rounds -> result. The suspense of the draw is only for a game
+  // nobody chose: one the player picked, or one set by a place, is shown straight away.
+  const [phase, setPhase] = useState(battle.reason === 'caught' ? 'intro' : 'landed')
   const [shown, setShown] = useState(0) // rounds played so far
   const [flick, setFlick] = useState(0)
-  const callbacks = useRef({ onReveal, onDone })
+  const callbacks = useRef({ onReveal, onDone, onAnswer })
 
   useEffect(() => {
-    callbacks.current = { onReveal, onDone }
+    callbacks.current = { onReveal, onDone, onAnswer }
   })
 
-  // The timeline: each beat schedules the next.
+  // The timeline: each beat schedules the next. A question waits for its answer, however long.
   useEffect(() => {
+    if (phase === 'result' && asking) return undefined
     let wait = RESULT_MS
     let next = () => callbacks.current.onDone()
     if (phase === 'intro') {
@@ -87,7 +114,7 @@ export default function ChallengeOverlay({ battle, onReveal, onDone }) {
     }
     const timer = setTimeout(next, wait)
     return () => clearTimeout(timer)
-  }, [phase, shown, total])
+  }, [phase, shown, total, asking])
 
   // While the game is being picked, the names flick past.
   useEffect(() => {
@@ -97,17 +124,31 @@ export default function ChallengeOverlay({ battle, onReveal, onDone }) {
   }, [phase])
 
   useEffect(() => {
-    if (phase === 'result') callbacks.current.onReveal()
-  }, [phase])
+    if (phase === 'result' && !asking) callbacks.current.onReveal()
+  }, [phase, asking])
+
+  // Answering a choice question: one number key.
+  useEffect(() => {
+    if (phase !== 'result' || !asking || written) return undefined
+    function onKey(event) {
+      const choice = { Digit1: 0, Numpad1: 0, Digit2: 1, Numpad2: 1, Digit3: 2, Numpad3: 2 }[event.code]
+      if (choice == null || choice >= question.options.length || event.repeat) return
+      event.preventDefault()
+      setPicked(choice)
+      callbacks.current.onAnswer?.(choice === question.answer)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [phase, asking, written, question])
 
   // E or Enter: jump to the result, or close it.
   useEffect(() => {
     function onKey(event) {
       if (event.code !== 'KeyE' && event.code !== 'Enter') return
-      if (event.repeat) return
+      if (event.repeat || event.target?.tagName === 'TEXTAREA') return // typing an answer
       event.preventDefault()
       if (phase === 'result') {
-        callbacks.current.onDone()
+        if (!asking) callbacks.current.onDone() // a question has to be answered first
       } else {
         setShown(total)
         setPhase('result')
@@ -115,7 +156,7 @@ export default function ChallengeOverlay({ battle, onReveal, onDone }) {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [phase, total])
+  }, [phase, total, asking])
 
   const played = outcome.rounds.slice(0, shown)
   const mine = played.reduce((sum, round) => sum + round.points[0], 0)
@@ -134,7 +175,11 @@ export default function ChallengeOverlay({ battle, onReveal, onDone }) {
   return (
     <section className="challenge" role="status">
       <p className="challenge-label">
-        {forced ? `${opponent.speciesName} forced a challenge` : 'Challenge'}
+        {forced
+          ? `${opponent.speciesName} caught you`
+          : battle.reason === 'place'
+            ? `Challenge at ${PLACES[battle.placeType]?.name ?? 'this place'}`
+            : 'Challenge · your pick'}
         {phase === 'rounds' && shown > 0 ? ` · round ${shown} of ${total}` : ''}
       </p>
 
@@ -218,8 +263,59 @@ export default function ChallengeOverlay({ battle, onReveal, onDone }) {
         </div>
       )}
 
-      {phase === 'result' && (
+      {phase === 'result' && asking && !written && (
+        <div className="challenge-question">
+          <p className="challenge-why-label">Question</p>
+          <h3>{question.prompt}</h3>
+          <ol>
+            {question.options.map((option, index) => (
+              <li key={option}>
+                <kbd>{index + 1}</kbd>
+                {option}
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+
+      {phase === 'result' && asking && written && (
+        <div className="challenge-question">
+          <p className="challenge-why-label">In your own words</p>
+          <h3>{question.prompt}</h3>
+          <textarea
+            autoFocus
+            rows={3}
+            maxLength={280}
+            value={draft}
+            placeholder="Type a sentence, then press Enter"
+            aria-label={question.prompt}
+            onChange={(event) => setDraft(event.target.value)}
+            onKeyDown={(event) => {
+              event.stopPropagation() // letters typed here are not game keys
+              if (event.key !== 'Enter') return
+              event.preventDefault()
+              if (draftWords < WRITTEN_MIN_WORDS) return
+              setPicked(draft.trim())
+              callbacks.current.onAnswer?.(true)
+            }}
+            onKeyUp={(event) => event.stopPropagation()}
+          />
+        </div>
+      )}
+
+      {phase === 'result' && !asking && (
         <div className="challenge-result">
+          {question && !written && (
+            <p className={picked === question.answer ? 'challenge-marked is-right' : 'challenge-marked'}>
+              <strong>{picked === question.answer ? 'Right.' : 'Not quite.'}</strong>{' '}
+              {question.because}
+            </p>
+          )}
+          {question && written && (
+            <p className="challenge-marked is-right">
+              <strong>You wrote:</strong> {picked} <em>Compare it with what happened, below.</em>
+            </p>
+          )}
           <h3>{headline}</h3>
           <p className="challenge-why-label">What happened</p>
           <p>{notes.meeting}</p>
@@ -230,6 +326,7 @@ export default function ChallengeOverlay({ battle, onReveal, onDone }) {
             of {game.name}. {standing(mineFinal - outcome.par, 'You')}{' '}
             {standing(theirsFinal - outcome.par, opponent.speciesName)}
           </p>
+          <p className="challenge-verdict">{verdictLine(mineFinal - outcome.par, theirsFinal - outcome.par)}</p>
           <p className="challenge-aside">
             Every other species played a game of its own at the same time, so the
             changes below are after theirs too.
@@ -247,7 +344,22 @@ export default function ChallengeOverlay({ battle, onReveal, onDone }) {
       )}
 
       <p className="challenge-keys">
-        <kbd>E</kbd> {phase === 'result' ? 'to carry on' : 'to skip to the result'}
+        {phase === 'result' && asking ? (
+          written ? (
+            <>
+              {draftWords < WRITTEN_MIN_WORDS
+                ? `At least ${WRITTEN_MIN_WORDS} words, then `
+                : ''}
+              <kbd>Enter</kbd> to answer
+            </>
+          ) : (
+            <>Press the number of your answer</>
+          )
+        ) : (
+          <>
+            <kbd>E</kbd> {phase === 'result' ? 'to carry on' : 'to skip to the result'}
+          </>
+        )}
       </p>
     </section>
   )

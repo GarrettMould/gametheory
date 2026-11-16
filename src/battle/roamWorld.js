@@ -25,6 +25,7 @@ import {
   shadowed,
 } from '../creaturesupdate/kit.js'
 import { createChunks } from './chunks.js'
+import { createPlaceKit } from './places.js'
 
 export const FOG_FAR = 90 // nothing is visible past this, so things can appear and vanish beyond it
 const CHUNK = 48 // side of one square of land
@@ -115,6 +116,8 @@ export function createRoamWorld() {
   const barkMat = new THREE.MeshStandardMaterial({ color: 0x5a4a38, roughness: 0.95, side: THREE.DoubleSide, envMapIntensity: 0.2 })
   const leafMat = new THREE.MeshStandardMaterial({ color: 0x5f6b2e, roughness: 0.95, flatShading: true, envMapIntensity: 0.2 })
   const rockMat = new THREE.MeshStandardMaterial({ color: 0x857a6a, roughness: 0.95, flatShading: true, envMapIntensity: 0.2 })
+
+  const placeKit = createPlaceKit()
 
   const bladeGeo = new THREE.ConeGeometry(0.022, 1, 3)
   bladeGeo.translate(0, 0.5, 0)
@@ -308,12 +311,27 @@ export function createRoamWorld() {
     const loose = Math.floor(cr(0, 4))
     for (let k = 0; k < loose; k += 1) rock(x0 + cr(0, CHUNK), z0 + cr(0, CHUNK), cr(0.4, 1.3))
 
+    // places that decide the game, and berries to eat (last, so the land itself never changes)
+    const found = placeKit.populate(chunk, {
+      cx,
+      cz,
+      x0,
+      z0,
+      size: CHUNK,
+      cr,
+      groundHeight,
+      clear: (x, z) => streamDistance(x, z) > STREAM_HALF + 2,
+    })
+
     return {
       group: chunk,
       obstacles,
+      places: found.places,
+      foods: found.foods,
       dispose() {
         groundGeo.dispose()
         grass.dispose()
+        found.dispose()
       },
     }
   }
@@ -376,6 +394,7 @@ export function createRoamWorld() {
       ribbon.geometry.dispose()
     }
     waterKey = ''
+    placeKit.dispose()
     for (const tree of acacias) tree.traverse((node) => node.geometry?.dispose())
     for (const geo of [bladeGeo, blobGeo, ...rockGeos, sky.geometry]) geo.dispose()
     for (const mat of [groundMat, grassMat, waterMat, barkMat, leafMat, rockMat, sky.material]) {
@@ -396,6 +415,8 @@ export function createRoamWorld() {
     update,
     animate() {},
     collide: chunks.collide,
+    placeAt: chunks.placeAt,
+    eatAt: chunks.eatAt,
     dispose,
     chunkCount: chunks.count,
   }

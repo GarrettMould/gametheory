@@ -8,9 +8,59 @@
   overscroll-behavior: none;
 }
 
+.battle-page {
+  --danger: 0; /* how close a chaser is: 0 far away, 1 about to catch you. Set from the scene. */
+}
+
 .battle-stage {
   position: absolute;
   inset: 0;
+}
+
+/*
+ * Fight or flight. While something is chasing the player the view narrows: the edges blur and
+ * turn red, more so the closer the chaser gets, and everything swells and settles like breathing.
+ */
+.battle-fear {
+  position: absolute;
+  inset: -4%;
+  z-index: 1;
+  background:
+    radial-gradient(ellipse at center, transparent 30%, rgba(150, 22, 12, calc(0.2 + var(--danger) * 0.45)) 100%),
+    rgba(170, 30, 20, calc(0.03 + var(--danger) * 0.07));
+  backdrop-filter: blur(calc(1.5px + var(--danger) * 4px));
+  -webkit-backdrop-filter: blur(calc(1.5px + var(--danger) * 4px));
+  mask-image: radial-gradient(ellipse at center, rgba(0, 0, 0, 0.25) 25%, #000 80%);
+  -webkit-mask-image: radial-gradient(ellipse at center, rgba(0, 0, 0, 0.25) 25%, #000 80%);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.7s ease;
+}
+
+.battle-page.is-hunted .battle-fear {
+  opacity: 1;
+  animation: fear-close-in 1.5s ease-in-out infinite;
+}
+
+.battle-page.is-hunted .battle-stage {
+  animation: fear-breathe 1.5s ease-in-out infinite;
+}
+
+@keyframes fear-close-in {
+  0%, 100% { transform: scale(1.08); opacity: 0.7; }
+  50% { transform: scale(1); opacity: 1; }
+}
+
+@keyframes fear-breathe {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.014); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .battle-page.is-hunted .battle-fear,
+  .battle-page.is-hunted .battle-stage {
+    animation: none;
+  }
 }
 
 .battle-canvas {
@@ -261,6 +311,68 @@
   font-size: 0.62rem;
   font-weight: 700;
   opacity: 0.8;
+}
+
+.fighter-hunger {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.fighter-hunger p {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin: 0;
+  font-size: 0.6rem;
+  font-weight: 750;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.fighter-hunger p span {
+  color: #5e564c;
+}
+
+.fighter-hunger p strong {
+  color: #245246;
+}
+
+.fighter-hunger-bar {
+  height: 0.5rem;
+  overflow: hidden;
+  background: #e4dccf;
+  border-radius: 999px;
+}
+
+.fighter-hunger-bar div {
+  height: 100%;
+  background: #3f8f6b;
+  border-radius: 999px;
+  transition: width 0.9s linear, background 0.4s ease;
+}
+
+.fighter-hunger small {
+  color: #5e564c;
+  font-size: 0.6rem;
+  line-height: 1.25;
+}
+
+.fighter-hunger.is-low .fighter-hunger-bar div {
+  background: #e0932a;
+}
+
+.fighter-hunger.is-low p strong {
+  color: #9a5a0c;
+}
+
+.fighter-hunger.is-empty p strong,
+.fighter-hunger.is-empty small {
+  color: #9b3a22;
+  font-weight: 750;
+}
+
+.fighter-hunger.is-empty .fighter-hunger-bar {
+  background: #f1cfc4;
 }
 
 .fighter-season {
@@ -514,6 +626,216 @@
   font-weight: 750;
   background: rgba(251, 247, 241, 0.95);
   box-shadow: 0 8px 22px rgba(20, 28, 18, 0.3);
+}
+
+.battle-prompt small {
+  margin-left: 0.5rem;
+  color: #5e564c;
+  font-size: 0.7rem;
+  font-weight: 650;
+}
+
+/* short messages above the prompt: something eaten or learned, where you are, who is after you */
+.battle-note,
+.battle-place {
+  max-width: min(30rem, 100%);
+  margin: 0;
+  padding: 0.4rem 0.8rem;
+  color: #1c1915;
+  font-size: 0.76rem;
+  font-weight: 650;
+  text-align: center;
+  background: rgba(251, 247, 241, 0.95);
+  border-radius: 999px;
+  box-shadow: 0 8px 22px rgba(20, 28, 18, 0.3);
+}
+
+.battle-note {
+  border-radius: 14px;
+  animation: battle-note-in 0.25s ease-out both;
+}
+
+.battle-place {
+  color: rgba(251, 247, 241, 0.95);
+  background: rgba(36, 82, 70, 0.92);
+}
+
+@keyframes battle-note-in {
+  from { opacity: 0; transform: translateY(0.4rem); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* danger meter: fills from green at the bottom to red at the top as a chaser closes in */
+.battle-danger {
+  --danger-height: 12rem;
+
+  position: absolute;
+  top: 50%;
+  right: 1rem;
+  display: grid;
+  justify-items: center;
+  gap: 0.4rem;
+  width: 4.6rem;
+  padding: 0.55rem 0.4rem;
+  color: #1c1915;
+  background: rgba(251, 247, 241, 0.95);
+  border: 1px solid rgba(36, 82, 70, 0.18);
+  border-radius: 14px;
+  box-shadow: 0 8px 22px rgba(20, 28, 18, 0.3);
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.battle-danger-label {
+  color: #9b3a22;
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.battle-danger-track {
+  position: relative;
+  width: 1.1rem;
+  height: var(--danger-height);
+  overflow: hidden;
+  background: #e4dccf;
+  border-radius: 999px;
+}
+
+/* The fill grows upward. Its colours are laid out over the full height of the track, so a low
+   fill only shows the green end and a full one reaches the red. */
+.battle-danger-fill {
+  position: absolute;
+  inset: auto 0 0;
+  height: calc(var(--danger) * 100%);
+  min-height: 0.5rem;
+  background: linear-gradient(to top, #3f8f6b 0%, #b7b23a 40%, #e0932a 65%, #c2402a 100%) bottom /
+    100% var(--danger-height) no-repeat;
+  border-radius: 999px;
+}
+
+/* a line across the track at the top of the green: stay below it to shake the chaser off */
+.battle-danger-safe {
+  position: absolute;
+  inset: auto 0 30%;
+  height: 2px;
+  background: #1c1915;
+  opacity: 0.55;
+}
+
+.battle-danger-tip {
+  color: #5e564c;
+  font-size: 0.56rem;
+  font-weight: 650;
+  line-height: 1.2;
+  text-align: center;
+}
+
+.battle-danger-who {
+  max-width: 100%;
+  overflow: hidden;
+  font-size: 0.62rem;
+  font-weight: 700;
+  line-height: 1.15;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+/* pick-a-game card */
+.battle-choice {
+  width: min(22rem, 100%);
+  padding: 0.75rem 0.9rem;
+  color: #1c1915;
+  background: rgba(251, 247, 241, 0.96);
+  border: 1px solid rgba(36, 82, 70, 0.18);
+  border-radius: 14px;
+  box-shadow: 0 8px 22px rgba(20, 28, 18, 0.3);
+}
+
+.battle-choice-label {
+  margin: 0;
+  color: #245246;
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.battle-choice h3 {
+  margin: 0.1rem 0 0.5rem;
+  font-size: 1rem;
+}
+
+.battle-choice ol {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.battle-choice li {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.45rem 0.6rem;
+  background: #fff;
+  border: 1px solid #d9d0c3;
+  border-radius: 10px;
+}
+
+.battle-choice kbd {
+  flex: 0 0 auto;
+  min-width: 1.5rem;
+  padding: 0.15rem 0.35rem;
+  color: #fbf7f1;
+  font: inherit;
+  font-weight: 800;
+  text-align: center;
+  background: #245246;
+  border-radius: 5px;
+}
+
+.battle-choice strong {
+  display: block;
+  font-size: 0.88rem;
+}
+
+.battle-choice small {
+  color: #5e564c;
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+
+/* tags over the animals in the world */
+.animal-tag {
+  display: grid;
+  justify-items: center;
+  gap: 0.05rem;
+  padding: 0.2rem 0.5rem;
+  color: #1c1915;
+  font-size: 0.66rem;
+  line-height: 1.2;
+  white-space: nowrap;
+  background: rgba(251, 247, 241, 0.9);
+  border-radius: 8px;
+  box-shadow: 0 3px 10px rgba(20, 28, 18, 0.3);
+  pointer-events: none;
+  user-select: none;
+}
+
+.animal-tag[hidden] {
+  display: none;
+}
+
+.animal-tag strong {
+  font-size: 0.72rem;
+}
+
+.animal-tag span {
+  color: #5e564c;
+  font-weight: 650;
 }
 
 .battle-hint kbd,

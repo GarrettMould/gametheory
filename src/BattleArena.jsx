@@ -3,15 +3,29 @@ import BattleScene from './battle/BattleScene.jsx'
 import ChallengeOverlay from './battle/ChallengeOverlay.jsx'
 import RoundStandings, { StandingsPeek } from './battle/RoundStandings.jsx'
 import {
+  ALL_GAMES,
+  BERRY_MEAL,
+  HUNGER_FULL,
+  QUESTION_CHANCE,
+  QUESTION_REWARD,
+  hungerDrain,
+  makeQuestion,
   SEASON_SECONDS,
   STARTING_FOOD,
+  berryFood,
   buildMatchups,
+  drawGame,
+  drawGameChoices,
+  eatBerries,
   eliminate,
   playChallenge,
   populationOf,
   standings,
+  starve,
   stepSeason,
+  strategyOf,
 } from './battle/challenge.js'
+import { PLACES } from './battle/places.js'
 import CreaturePortrait from './battle/CreaturePortrait.jsx'
 import { ROSTER } from './creaturesupdate/roster.js'
 import { loadCreatures } from './loadCreatures.js'
@@ -198,7 +212,10 @@ function PlayerCard({
   goneIds,
   rank,
   alive,
+  hunger,
 }) {
+  const fed = hunger / HUNGER_FULL
+  const hungerState = hunger <= 0 ? 'is-empty' : fed < 0.3 ? 'is-low' : ''
   return (
     <article className="fighter-card">
       <div className="fighter-head">
@@ -262,6 +279,31 @@ function PlayerCard({
           </div>
         </dl>
       ) : null}
+      {creature ? (
+        <div className={`fighter-hunger ${hungerState}`}>
+          <p>
+            <span>Hunger</span>
+            <strong>
+              {hunger <= 0 ? 'Starving' : fed < 0.3 ? 'Hungry' : 'Fed'}
+            </strong>
+          </p>
+          <div
+            className="fighter-hunger-bar"
+            role="meter"
+            aria-label="How well fed your herd is"
+            aria-valuemin={0}
+            aria-valuemax={HUNGER_FULL}
+            aria-valuenow={hunger}
+          >
+            <div style={{ width: `${fed * 100}%` }} />
+          </div>
+          <small>
+            {hunger <= 0
+              ? 'Your herd is shrinking. Win food or find berries.'
+              : 'Food you earn keeps your herd fed.'}
+          </small>
+        </div>
+      ) : null}
       {creature ? <p className="fighter-season">Season {season}</p> : null}
       <CreaturePicker
         label="Creature"
@@ -311,6 +353,10 @@ export default function BattleArena() {
   const [food, setFood] = useState({})
   const [nearby, setNearby] = useState(null)
   const [battle, setBattle] = useState(null) // the challenge being played back, if any
+  const [choice, setChoice] = useState(null) // the pick-a-game card: { opponent, games: [a, b] }
+  const [placeType, setPlaceType] = useState(null) // the place the player is standing in, if any
+  const [hunter, setHunter] = useState(null) // the creature chasing the player, if any
+  const [notice, setNotice] = useState(null) // a short message, such as what was just eaten
   const [pointerHeld, setPointerHeld] = useState(false) // true while the view has captured the pointer
 
   useEffect(() => {
@@ -335,17 +381,39 @@ export default function BattleArena() {
   const [roundEnd, setRoundEnd] = useState(null) // the standings being shown, if any
   const [run, setRun] = useState(1) // goes up each time the game is restarted
   const inBattle = Boolean(battle)
-  const paused = inBattle || Boolean(roundEnd)
+  const paused = inBattle || Boolean(roundEnd) || Boolean(choice)
   const ready = !loading && options.length > 1 // no clock until there is someone to play against
 
+  // Hunger: the bar drains a point a second and the food the player earns refills it.
+  const [hunger, setHunger] = useState(HUNGER_FULL)
+  const hungerRef = useRef(HUNGER_FULL)
+  const feed = useCallback((amount) => {
+    hungerRef.current = Math.min(HUNGER_FULL, Math.max(0, hungerRef.current + amount))
+    setHunger(hungerRef.current)
+  }, [])
+
+  // One clock drives everything that passes with time: the round countdown, hunger, and the
+  // background seasons. It stops while a challenge, a choice or the standings are on screen, and
+  // picks up where it left off, so being busy never skips a season.
+  const elapsed = useRef(0) // seconds of play so far
   useEffect(() => {
     if (paused || !ready || secondsLeft <= 0) return undefined
-    const timer = setInterval(
-      () => setSecondsLeft((current) => Math.max(0, current - 1)),
-      1000,
-    )
+    const timer = setInterval(() => {
+      elapsed.current += 1
+      setSecondsLeft((current) => Math.max(0, current - 1))
+      feed(-hungerDrain(player))
+      if (elapsed.current % SEASON_SECONDS === 0) {
+        // Every species has its typical encounter; a herd with nothing to eat also shrinks.
+        const starving = hungerRef.current <= 0 && player
+        setPopulations((current) => {
+          const next = stepSeason(options, current, matchups)
+          return starving ? starve(player, options, next) : next
+        })
+        setSeason((current) => current + 1)
+      }
+    }, 1000)
     return () => clearInterval(timer)
-  }, [paused, ready, secondsLeft])
+  }, [paused, ready, secondsLeft, feed, player, options, matchups])
 
   // Time is up (and any challenge has finished): rank everyone and remove the bottom of the table.
   useEffect(() => {
@@ -372,6 +440,8 @@ export default function BattleArena() {
       // Play again: a fresh world.
       setPopulations({})
       setFood({})
+      feed(HUNGER_FULL)
+      elapsed.current = 0
       setSeason(1)
       setRound(1)
       setRun((current) => current + 1)
@@ -380,7 +450,7 @@ export default function BattleArena() {
     }
     setSecondsLeft(ROUND_SECONDS)
     setRoundEnd(null)
-  }, [roundEnd])
+  }, [roundEnd, feed])
 
   // Where everyone stands right now, and who would go if the round ended this second.
   const table = useMemo(() => standings(options, populations), [options, populations])
@@ -389,7 +459,6 @@ export default function BattleArena() {
     const count = Math.min(ELIMINATED_PER_ROUND, Math.max(0, table.length - 1))
     return table.slice(table.length - count).map((row) => row.id)
   }, [table])
-
   // A pinch on the trackpad would zoom the whole page, and because the arena fills the window
   // exactly, a zoomed page pushes the sidebar and clock half off screen with no way to scroll back.
   // So pinches are swallowed everywhere on this page.
@@ -443,46 +512,110 @@ export default function BattleArena() {
     [options, populations],
   )
 
-  useEffect(() => {
-    if (paused) return undefined
-    const timer = setInterval(() => {
-      setPopulations((current) => stepSeason(options, current, matchups))
-      setSeason((current) => current + 1)
-    }, SEASON_SECONDS * 1000)
-    return () => clearInterval(timer)
-  }, [paused, options, matchups])
 
-  // A challenge is decided the moment it starts, then played back as a short show.
+  const askedLast = useRef(false) // whether the previous challenge ended with a question
+  // A challenge is decided the moment its game is settled, then played back as a short show.
   // The sidebar numbers only change when the show reaches its verdict.
-  const challenge = useCallback(
-    (opponent, forced = false) => {
-      if (!player || battle) return
+  const startBattle = useCallback(
+    (opponent, game, reason, atPlace = null) => {
+      if (!player) return
+      setChoice(null)
+      const outcome = playChallenge(player, opponent, options, populations, matchups, { game })
+      // Now and then a challenge ends with a quick question, never two challenges running.
+      const ask = !askedLast.current && Math.random() < QUESTION_CHANCE
+      askedLast.current = ask
       setBattle({
-        outcome: playChallenge(player, opponent, options, populations, matchups),
+        outcome,
+        question: ask ? makeQuestion(player, opponent, outcome) : null,
         player,
         opponent,
-        forced,
+        forced: reason === 'caught',
+        reason, // 'picked' by the player, set by the 'place', or 'caught' by a chaser
+        placeType: atPlace,
         revealed: false,
       })
     },
-    [player, battle, options, populations, matchups],
+    [player, options, populations, matchups],
   )
+
+  // Which game? At a place it is that place's game. If a chaser caught the player, the chaser's
+  // luck of the draw. Otherwise the player started it and picks from two.
+  const challenge = useCallback(
+    (opponent, forced, atPlace) => {
+      if (!player || battle || choice) return
+      if (atPlace && PLACES[atPlace]) {
+        startBattle(opponent, PLACES[atPlace].game, 'place', atPlace)
+      }
+      else if (forced) startBattle(opponent, drawGame(), 'caught')
+      else setChoice({ opponent, games: drawGameChoices() })
+    },
+    [player, battle, choice, startBattle],
+  )
+
+  // Picking the game: 1 or 2.
+  useEffect(() => {
+    if (!choice) return undefined
+    function onKey(event) {
+      const pick = { Digit1: 0, Numpad1: 0, Digit2: 1, Numpad2: 1 }[event.code]
+      if (pick == null || event.repeat) return
+      event.preventDefault()
+      startBattle(choice.opponent, choice.games[pick], 'picked')
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [choice, startBattle])
+
+  // How close the chaser is changes every frame, so the scene writes it straight onto the page as
+  // a CSS variable (0 far away, 1 about to be caught) instead of going through React state. The
+  // danger meter and the fight-or-flight effect both read it.
+  const setDanger = useCallback((level) => {
+    pageRef.current?.style.setProperty('--danger', level.toFixed(3))
+  }, [])
+
+  const eat = useCallback(() => {
+    if (!player) return
+    const gained = berryFood(player)
+    setPopulations((current) => eatBerries(player, options, current))
+    setFood((current) => ({
+      ...current,
+      [player.id]: (current[player.id] ?? STARTING_FOOD) + gained,
+    }))
+    feed(BERRY_MEAL)
+    setNotice({ text: `Berries: +${gained} food`, at: Date.now() })
+  }, [player, options, feed])
+
+  useEffect(() => {
+    if (!notice) return undefined
+    const timer = setTimeout(() => setNotice(null), 5000)
+    return () => clearTimeout(timer)
+  }, [notice])
 
   const revealBattle = useCallback(() => {
     if (!battle || battle.revealed) return
     setBattle({ ...battle, revealed: true })
+    feed(battle.outcome.food[0]) // what you won feeds the herd; being robbed leaves it hungrier
     setPopulations((current) => ({ ...current, ...battle.outcome.populations }))
     setFood((current) => ({
       ...current,
       [battle.player.id]:
         (current[battle.player.id] ?? STARTING_FOOD) + battle.outcome.food[0],
     }))
-  }, [battle])
+  }, [battle, feed])
 
   const endBattle = useCallback(() => setBattle(null), [])
+  // A right answer is a small snack for the herd.
+  const answered = useCallback(
+    (correct) => {
+      if (correct) feed(QUESTION_REWARD)
+    },
+    [feed],
+  )
 
   return (
-    <div className="battle-page" ref={pageRef}>
+    <div
+      className={hunter && !paused ? 'battle-page is-hunted' : 'battle-page'}
+      ref={pageRef}
+    >
       <div className="battle-stage">
         <BattleScene
           creatures={options}
@@ -490,11 +623,18 @@ export default function BattleArena() {
           populations={populations}
           onNearby={setNearby}
           onChallenge={challenge}
+          onHunted={setHunter}
+          onDanger={setDanger}
+          onEat={eat}
+          onPlace={setPlaceType}
           busy={paused}
           run={run}
           terrainKind={terrainKind}
         />
       </div>
+
+      {/* fight or flight: the edges of the view blur and redden, and the whole view breathes */}
+      <div className="battle-fear" aria-hidden="true" />
 
       <div className="battle-hud">
         <div className="battle-top">
@@ -555,6 +695,7 @@ export default function BattleArena() {
             goneIds={goneIds}
             rank={rank}
             alive={table.length}
+            hunger={hunger}
           />
         </div>
 
@@ -571,18 +712,69 @@ export default function BattleArena() {
           )}
         </p>
 
+        {hunter && !paused && (
+          <div
+            className="battle-danger"
+            role="img"
+            aria-label={`${hunter.speciesName} is chasing you`}
+          >
+            <span className="battle-danger-label">Danger</span>
+            <div className="battle-danger-track">
+              <div className="battle-danger-fill" />
+              <div className="battle-danger-safe" />
+            </div>
+            <span className="battle-danger-who">{hunter.speciesName}</span>
+            <span className="battle-danger-tip">Hold the green 3 seconds to lose it</span>
+          </div>
+        )}
+
         <div className="battle-bottom">
+          {notice && !paused && (
+            <p className="battle-note" key={notice.at} role="status">
+              {notice.text}
+            </p>
+          )}
+          {placeType && !paused && (
+            <p className="battle-place">
+              You are at {PLACES[placeType].name}. A challenge here is{' '}
+              <strong>{ALL_GAMES[PLACES[placeType].game].name}</strong>.
+            </p>
+          )}
           {nearby && !paused && (
             <p className="battle-prompt">
               <kbd>E</kbd> Challenge {nearby.speciesName}
+              <small>{strategyOf(nearby)}</small>
             </p>
+          )}
+          {choice && (
+            <section className="battle-choice" role="dialog" aria-label="Pick the game">
+              <p className="battle-choice-label">
+                Challenge {choice.opponent.speciesName} ·{' '}
+                {strategyOf(choice.opponent)}
+              </p>
+              <h3>Pick the game</h3>
+              <ol>
+                {choice.games.map((game, index) => (
+                  <li key={game}>
+                    <kbd>{index + 1}</kbd>
+                    <span>
+                      <strong>{ALL_GAMES[game].name}</strong>
+                      <small>
+                        {ALL_GAMES[game].wildcard ? 'Wildcard · ' : ''}
+                        {ALL_GAMES[game].gist}
+                      </small>
+                    </span>
+                  </li>
+                ))}
+              </ol>
+            </section>
           )}
           {!paused && (
             <p className="battle-hint">
               <kbd>W</kbd>
               <kbd>S</kbd> walk · <kbd>A</kbd>
               <kbd>D</kbd> turn · <kbd>Space</kbd> jump · <kbd>E</kbd> challenge · hold{' '}
-              <kbd>Tab</kbd> standings
+              <kbd>Tab</kbd> standings · hold <kbd>V</kbd> see yourself
             </p>
           )}
         </div>
@@ -593,6 +785,7 @@ export default function BattleArena() {
           battle={battle}
           onReveal={revealBattle}
           onDone={endBattle}
+          onAnswer={answered}
         />
       )}
 

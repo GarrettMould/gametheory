@@ -2,6 +2,7 @@
 // Uses the games already in src/arena: a challenge is ten rounds of ONE of the four games, picked at
 // random, so nobody knows beforehand which game they are walking into.
 import { playMatch } from '../arena/match.js'
+import { chooseMove } from '../arena/strategies.js'
 import { createRng } from '../arena/rng.js'
 import { ADAPTATIONS, ARCHETYPES, DEFAULT_RULES } from '../arena/rules.js'
 
@@ -33,24 +34,28 @@ const MATCHUP_SAMPLES = 12 // matches averaged per pairing when working out what
 export const GAMES = {
   territory: {
     name: 'Territory',
+    gist: 'Display or escalate',
     moves: { cooperate: 'Display', cheat: 'Escalate' },
     how: 'Two animals want the same patch. Each round both Display or Escalate. Two displays split it quietly (2 each). An escalator takes it (4) while the displayer tries to flee. Two escalators fight.',
     stats: 'A fight goes to Size plus a die roll, with Armor adding 1, and the loser takes −5. Fleeing safely takes Agility.',
   },
   food: {
     name: 'Food Sharing',
+    gist: 'Share or keep',
     moves: { cooperate: 'Share', cheat: 'Keep' },
     how: 'A carcass is on the ground. Each round both Share or Keep. Sharing together feeds both (3 or 4 each). Keeping while the other shares takes 5 and costs the sharer 3. If both keep, nobody eats.',
     stats: 'Efficiency 4 or higher shares at no cost, and Reserves soften the loss when a sharer is exploited.',
   },
   pack: {
     name: 'Pack Hunting',
+    gist: 'Stag or hare',
     moves: { cooperate: 'Stag', cheat: 'Hare' },
     how: 'Each round both go for the Stag or settle for a Hare. A hare is a safe 2. The stag pays 6 each, but only if both commit and the hunt comes off. A lone stag hunter gets nothing.',
     stats: 'The hunt comes off when both animals’ Size and Agility plus a die roll reach 16. Pack adds 1.',
   },
   ambush: {
     name: 'Ambush',
+    gist: 'Forage or ambush',
     moves: { cooperate: 'Forage', cheat: 'Ambush' },
     how: 'Each round both Forage in the open or lie in Ambush. Two foragers eat a little (1 each). An unnoticed ambusher takes 6 and costs the forager 5; a spotted one gets nothing. Two ambushers catch nothing.',
     stats: 'The ambusher rolls with Efficiency and the forager with Agility. Camouflage gives one re-roll.',
@@ -65,6 +70,7 @@ export const GAMES = {
 export const WILDCARDS = {
   chase: {
     name: 'Chase',
+    gist: 'Agility and dice',
     wildcard: true,
     stat: 'agility',
     statName: 'Agility',
@@ -74,6 +80,7 @@ export const WILDCARDS = {
   },
   shove: {
     name: 'Shoving Match',
+    gist: 'Size and dice',
     wildcard: true,
     stat: 'size',
     statName: 'Size',
@@ -84,6 +91,7 @@ export const WILDCARDS = {
   },
   standoff: {
     name: 'Standoff',
+    gist: 'Efficiency and dice',
     wildcard: true,
     stat: 'efficiency',
     statName: 'Efficiency',
@@ -136,7 +144,7 @@ function playGame(a, b, game, rng) {
 }
 
 /** Draw the game for a challenge: usually one of the four, sometimes a wildcard. */
-function drawGame(rng) {
+export function drawGame(rng = Math.random) {
   const pool = rng() < WILDCARD_CHANCE ? Object.keys(WILDCARDS) : DEFAULT_RULES.arenas
   return pool[Math.floor(rng() * pool.length)]
 }
@@ -454,6 +462,207 @@ export function eliminate(creatures, populations, ids) {
   const next = census(creatures, populations)
   for (const id of ids) next[id] = 0
   return settle(next, creatures.length)
+}
+
+// How often a challenge ends with a question. Questions are switched off for now: set this back to
+// something like 1 / 3 to bring them back.
+export const QUESTION_CHANCE = 0
+export const WRITTEN_SHARE = 0.3 // how many of those questions are answered by typing a sentence
+export const WRITTEN_MIN_WORDS = 4 // a typed answer needs at least this many words
+export const QUESTION_REWARD = 6 // seconds of hunger a right (or written) answer buys
+
+const article = (strategy) => (/^[AEIOU]/.test(strategy) ? `an ${strategy}` : `a ${strategy}`)
+const shuffled = (items, random) =>
+  items
+    .map((item) => [random(), item])
+    .sort((a, b) => a[0] - b[0])
+    .map(([, item]) => item)
+
+/** What both animals playing the nice move every round would have paid `creature` over ten rounds, where that is certain. */
+function peacePayoff(creature, game) {
+  const rounds = DEFAULT_RULES.roundsPerArena
+  if (game === 'territory') return DEFAULT_RULES.territory.bothDisplay * rounds
+  if (game === 'ambush') return DEFAULT_RULES.ambush.bothForage * rounds
+  if (game === 'food') {
+    const rules = DEFAULT_RULES.food
+    const cost = rules.shareCostByEfficiency[toEngineCreature(creature).efficiency]
+    return (rules.shareGain - cost) * rounds
+  }
+  return null // Pack Hunting depends on the dice
+}
+
+/** The questions answered with one number key. Each needs some thought about what just happened. */
+function choiceQuestions(me, them, outcome, random) {
+  const game = ALL_GAMES[outcome.game]
+  const [mine] = outcome.food
+  const strategy = strategyOf(them)
+  const pool = []
+
+  // Growing or shrinking depends on par, not on beating the opponent. Only asked when the two agree
+  // (everyone else's games can occasionally tip a close result the other way).
+  const ahead = mine - outcome.par
+  if (Math.abs(outcome.change[0]) > 0.002 && Math.sign(ahead) === Math.sign(outcome.change[0])) {
+    pool.push({
+      prompt: 'Did that make your population grow or shrink?',
+      options: ['Grow', 'Shrink'],
+      answer: outcome.change[0] > 0 ? 0 : 1,
+      because: `You earned ${mine}. A typical animal earns ${Math.round(outcome.par * 10) / 10} at ${game.name} right now, so you ${ahead > 0 ? 'got ahead of' : 'fell behind'} the rest of the world.`,
+    })
+  }
+
+  if (game.wildcard) {
+    const adds = [toEngineCreature(me), toEngineCreature(them)].map((side) => wildcardBonus(side, game))
+    pool.push({
+      prompt: `Before any dice were rolled, who had the edge in this ${game.name}?`,
+      options: ['You', them.speciesName, 'Nobody'],
+      answer: adds[0] > adds[1] ? 0 : adds[1] > adds[0] ? 1 : 2,
+      because: `A ${game.name} adds ${game.statName}${game.helper ? ` (plus 1 for ${game.helperName})` : ''} to every roll. You add ${adds[0]} and ${them.speciesName} adds ${adds[1]}.`,
+    })
+    return pool
+  }
+
+  const words = (move) => game.moves[move]
+  const theirMoves = outcome.rounds.map((round) => round.moves[1])
+  const myMoves = outcome.rounds.map((round) => round.moves[0])
+
+  // What would they do next? Needs the strategy applied to everything that just happened.
+  const next = chooseMove(strategy, myMoves, myMoves.length + 1)
+  pool.push({
+    prompt: `If there were an eleventh round, what would ${them.speciesName} play?`,
+    options: [words('cooperate'), words('cheat')],
+    answer: next === 'cooperate' ? 0 : 1,
+    because: `${them.speciesName} is ${strategy}: it ${STRATEGY_PLAY[strategy]
+      .replaceAll('{N}', words('cooperate'))
+      .replaceAll('{M}', words('cheat'))}`,
+  })
+
+  // Why did they change their move? Only where the strategy gives one clear reason.
+  const turn = theirMoves.findIndex((move, index) => index > 0 && move !== theirMoves[index - 1])
+  const reasons = {
+    Copycat: 'It copies whatever you did the round before',
+    Grudger: 'You crossed it once and it never forgives',
+    Detective: 'It was testing how you would react',
+  }
+  if (turn > 0 && reasons[strategy] && (strategy !== 'Detective' || turn < 4)) {
+    const options = shuffled(Object.values(reasons), random)
+    pool.push({
+      prompt: `In round ${turn + 1}, ${them.speciesName} switched from ${words(theirMoves[turn - 1])} to ${words(theirMoves[turn])}. Why?`,
+      options,
+      answer: options.indexOf(reasons[strategy]),
+      because: `${them.speciesName} is ${strategy}.`,
+    })
+  }
+
+  // Would plain cooperation have paid better?
+  const peace = peacePayoff(me, outcome.game)
+  const allPeace = outcome.rounds.every((round) => round.moves[0] === 'cooperate' && round.moves[1] === 'cooperate')
+  if (peace != null && !allPeace && peace !== mine) {
+    pool.push({
+      prompt: `If you had both played ${words('cooperate')} every round, would you have earned more than the ${mine} you got?`,
+      options: ['Yes', 'No'],
+      answer: peace > mine ? 0 : 1,
+      because: `Ten rounds of both playing ${words('cooperate')} would have paid you ${peace}.`,
+    })
+  }
+
+  return pool
+}
+
+/** A question answered by typing a sentence: what happens when these two meet, and why? */
+function writtenQuestion(me, them, outcome) {
+  const game = ALL_GAMES[outcome.game]
+  const mine = strategyOf(me)
+  const theirs = strategyOf(them)
+  let prompt = `What happens when ${article(mine)} meets ${article(theirs)} at ${game.name}, and why?`
+  if (game.wildcard) {
+    prompt = `Strategies sat that ${game.name} out. What decided it, and who had the edge?`
+  } else if (mine === theirs) {
+    prompt = `What happens when two ${mine}s meet at ${game.name}, and why?`
+  }
+  return { kind: 'written', prompt, model: explainChallenge(me, them, outcome).meeting }
+}
+
+/**
+ * One question about the challenge that just finished. Either
+ *   { kind: 'choice', prompt, options: [text], answer: index of the right option, because }
+ *     answered with a single number key, or
+ *   { kind: 'written', prompt, model }
+ *     answered by typing a sentence, then compared with the model explanation.
+ */
+export function makeQuestion(me, them, outcome, random = Math.random) {
+  const choices = choiceQuestions(me, them, outcome, random)
+  if (choices.length === 0 || random() < WRITTEN_SHARE) return writtenQuestion(me, them, outcome)
+  return { kind: 'choice', ...choices[Math.floor(random() * choices.length)] }
+}
+
+/** Two different games for the player to choose between when they start a challenge. */
+export function drawGameChoices(rng = Math.random) {
+  const first = drawGame(rng)
+  let second = drawGame(rng)
+  while (second === first) second = drawGame(rng)
+  return [first, second]
+}
+
+/**
+ * How much an animal goes looking for trouble, from 0 to 1, by strategy. The ones that cheat or
+ * probe hunt the player down; the ones that always cooperate never start anything.
+ */
+const AGGRESSION = {
+  'All Cheat': 1,
+  Detective: 0.65,
+  Grudger: 0.3,
+  Copycat: 0.2,
+  'All Cooperate': 0,
+}
+export const strategyOf = (creature) => toEngineCreature(creature).archetype
+export const aggressionOf = (creature) => AGGRESSION[strategyOf(creature)]
+
+/** Food from one berry bush. An efficient animal gets more out of the same meal. */
+export const berryFood = (creature) => (toEngineCreature(creature).efficiency >= 4 ? 3 : 2)
+
+/** The player's species eats a berry bush: a small boost, then the world settles as usual. */
+export function eatBerries(me, everyone, populations) {
+  const next = census(everyone, populations)
+  next[me.id] = grow(next[me.id], berryFood(me), CHALLENGE_STRENGTH)
+  return settle(next, everyone.length)
+}
+
+// Hunger. The player's herd has to keep eating: the hunger bar drains a point a second and is
+// refilled by the food the player earns. While it is empty, the herd shrinks every season.
+export const HUNGER_FULL = 45 // a full bar lasts this many seconds for an animal with Efficiency 3
+export const BERRY_MEAL = 8 // seconds of hunger one berry bush buys
+export const STARVING_LOSS = 0.05 // share of the population lost in each season spent with an empty bar
+
+/** The player's power-up, as the game engine names it: 'armor', 'reserves', 'pack' or 'camouflage'. */
+export const powerOf = (creature) => (creature ? toEngineCreature(creature).adaptation : null)
+
+/** What each power-up does for the player in the arena, in a few words for the sidebar. */
+export const POWER_HELP = {
+  armor: { name: 'Armor', does: 'Turns away the first hunter to catch you each round.' },
+  reserves: { name: 'Reserves', does: 'Your hunger bar drains 30% slower.' },
+  pack: { name: 'Pack', does: 'Two of your kind travel with you, and hunters think twice.' },
+  camouflage: { name: 'Camouflage', does: 'Hunters spot you later, and not at all in reeds or tall grass.' },
+}
+
+const HUNGER_BY_TERRAIN = { arctic: 1.35 } // the cold burns food faster
+
+/**
+ * Hunger points lost each second. An efficient animal burns through its food more slowly: each
+ * point of Efficiency above 3 makes the bar last 15% longer, each point below 15% shorter.
+ * Reserves slow it by a further 30%, and some terrains speed it up.
+ */
+export function hungerDrain(creature, terrainKind) {
+  const efficiency = creature ? toEngineCreature(creature).efficiency : 3
+  const reserves = powerOf(creature) === 'reserves' ? 0.7 : 1
+  return (reserves * (HUNGER_BY_TERRAIN[terrainKind] || 1)) / (1 + 0.15 * (efficiency - 3))
+}
+
+/** The player's species went a season without food: it shrinks, then the world settles as usual. */
+export function starve(me, everyone, populations) {
+  const next = census(everyone, populations)
+  const left = next[me.id] * (1 - STARVING_LOSS)
+  next[me.id] = left < EXTINCT_BELOW ? 0 : left
+  return settle(next, everyone.length)
 }
 
 /** Pick a species to appear next, in proportion to its population. Returns null if nobody is left. */

@@ -15,6 +15,7 @@ import {
   sunRig,
 } from '../creaturesupdate/kit.js'
 import { createChunks } from './chunks.js'
+import { createPlaceKit } from './places.js'
 
 const FOG_FAR = 72 // the forest closes in sooner than the open plain
 const CHUNK = 48
@@ -47,15 +48,25 @@ const inWater = (x, z) => riverDistance(x, z) < RIVER_HALF
 /*
  * Terraces: going east the land alternates between a high shelf and a low one, with a cliff between.
  * The cliff lines wobble north to south. The player starts in the middle of a high shelf.
+ *
+ * Cliffs cannot be climbed (see canWalk). The way up is a ramp: midway between every pair of rivers
+ * each cliff relaxes into a long gentle slope. So waterfalls are where the cliff is sheerest, and
+ * the ramps are a walk north or south of them.
  */
 const cliffCoord = (x, z) => x + 14 * Math.sin(z * 0.021) + TERRACE / 4
-const shelf = (x, z) =>
-  smoothstep(-0.07, 0.07, Math.sin((cliffCoord(x, z) * Math.PI * 2) / TERRACE)) // 1 on a high shelf, 0 on a low one
+/** 0 along a sheer cliff, rising to 1 in the middle of a ramp. */
+const ramp = (z) =>
+  Math.pow(Math.max(0, Math.cos(((z - 30 - RIVER_GAP / 2) * Math.PI * 2) / RIVER_GAP)), 8)
+function shelf(x, z) {
+  const spread = 0.07 + 0.5 * ramp(z) // how far the drop is spread out: narrow is a cliff, wide is a slope
+  return smoothstep(-spread, spread, Math.sin((cliffCoord(x, z) * Math.PI * 2) / TERRACE)) // 1 on a high shelf, 0 on a low one
+}
 const terrace = (x, z) => CLIFF_HEIGHT * shelf(x, z)
 const onCliff = (x, z) => {
   const s = shelf(x, z)
-  return 4 * s * (1 - s) // 0 on the flat, 1 halfway down a cliff
+  return 4 * s * (1 - s) * (1 - Math.min(1, ramp(z) * 3)) // 0 on the flat and on ramps, 1 halfway down a cliff
 }
+const TOO_STEEP = 0.85 // a rise of more than this per unit walked is a cliff face
 
 /** Terrain height: terraces, rolling ground on top, level banks and a carved bed along the rivers. */
 function groundHeight(x, z) {
@@ -66,6 +77,13 @@ function groundHeight(x, z) {
   h *= smoothstep(RIVER_HALF + 1, RIVER_HALF + 20, d)
   h -= RIVER_DEPTH * (1 - smoothstep(RIVER_HALF * 0.4, RIVER_HALF + 1, d))
   return h + terrace(x, z)
+}
+
+/** Whether a step from one point to another can be walked. Going up a cliff face cannot; coming down can. */
+function canWalk(fromX, fromZ, toX, toZ) {
+  const run = Math.hypot(toX - fromX, toZ - fromZ)
+  if (run < 0.0001) return true
+  return (groundHeight(toX, toZ) - groundHeight(fromX, fromZ)) / run < TOO_STEEP
 }
 
 const chunkSeed = (cx, cz) => (Math.imul(cx, 73856093) ^ Math.imul(cz, 19349663) ^ 0x2f6b1c3d) | 0
@@ -121,6 +139,8 @@ export function createJungleWorld() {
     opacity: 0.82,
     side: THREE.DoubleSide,
   })
+
+  const placeKit = createPlaceKit()
 
   // undergrowth: one broad blade
   const bladeGeo = new THREE.ConeGeometry(0.05, 1, 3)
@@ -400,12 +420,27 @@ export function createJungleWorld() {
       obstacles.push({ x, z, r: s * 1.15 })
     }
 
+    // places that decide the game, and berries to eat (last, so the land itself never changes)
+    const found = placeKit.populate(chunk, {
+      cx,
+      cz,
+      x0,
+      z0,
+      size: CHUNK,
+      cr,
+      groundHeight,
+      clear: (x, z) => riverDistance(x, z) > RIVER_HALF + 2 && onCliff(x, z) < 0.05,
+    })
+
     return {
       group: chunk,
       obstacles,
+      places: found.places,
+      foods: found.foods,
       dispose() {
         groundGeo.dispose()
         for (const mesh of owned) mesh.dispose()
+        found.dispose()
       },
     }
   }
@@ -666,6 +701,7 @@ export function createJungleWorld() {
     chunks.clear()
     clearWater()
     waterKey = ''
+    placeKit.dispose()
     for (const mesh of [bodies, ...wings]) mesh.dispose()
     for (const geo of [bladeGeo, fernGeo, trunkGeo, crownGeo, vineGeo, bodyGeo, ...wingGeos, ...rockGeos, sky.geometry]) {
       geo.dispose()
@@ -685,9 +721,12 @@ export function createJungleWorld() {
     fogFar: FOG_FAR,
     groundHeight,
     inWater,
+    canWalk,
     update,
     animate,
     collide: chunks.collide,
+    placeAt: chunks.placeAt,
+    eatAt: chunks.eatAt,
     dispose,
     chunkCount: chunks.count,
   }
